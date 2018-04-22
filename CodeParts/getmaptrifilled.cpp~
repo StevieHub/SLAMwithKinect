@@ -1,0 +1,182 @@
+#include "opencv2/imgproc/imgproc.hpp"
+#include "opencv2/highgui/highgui.hpp"
+#include <iostream>
+#include <fstream> 
+#include <math.h>
+
+using namespace cv;
+using namespace std;
+
+Mat image;
+//Mat angle;
+Mat locmap(450,640,CV_8U,cv::Scalar(255));	//initialize an all-white 640x475 local map image
+//Mat trilocmap(1000,1000,CV_8U,cv::Scalar(255));	//initialize an all-white 1000x1000 local map image
+Mat trilocmap;
+std::vector<std::vector<cv::Point> > contours;
+
+float pix2m (int pixval)
+{
+	float actval;
+	actval = (-0.0168*(pow(pixval,2)) + 10.564*pixval - 5.0894)/5;
+	return actval;
+}
+
+
+void marknear(int nearpix){
+	int m = pix2m(nearpix);
+	for( int xit=1; xit<=locmap.size().width; xit++){
+		for(int yit=1; yit<=locmap.size().height; yit++){
+			locmap.at<uchar>(yit,xit) = m;
+		}
+	}	
+}
+
+int getnearest()	//returns the nearest pixel value in the entire image
+{
+	int nearestpixval=255;
+	for(int x=1; x<=image.size().width; x++){
+		for(int y=1; y<=image.size().height; y++){
+			if(((image.at<uchar>(y,x))<nearestpixval) && (image.at<uchar>(y,x)!=0))
+				nearestpixval = image.at<uchar>(y,x);
+		}
+	}
+	cout<<"nearest pixval:"<<nearestpixval<<endl;	
+	return nearestpixval;
+}
+
+int getnearestx(int xit)	//returns the nearest pixel value in a particular column
+{
+	int nearxpixval=255;
+	for(int y=1; y<=image.size().height; y++){
+		if(((image.at<uchar>(y,xit))<nearxpixval)&&(image.at<uchar>(y,xit)!=0))
+			nearxpixval = image.at<uchar>(y,xit);
+	}
+	return nearxpixval;
+}
+
+
+void editlocmap(int pixval, int x){
+	int actval = pix2m(pixval);
+	int y = floor(actval);
+	locmap.at<uchar>(y, x) = 0;
+}
+
+void edittrlocmap(int y, int x){
+	trilocmap.at<uchar>(y, x) = 150;
+}
+
+int main(){
+	image = imread("depthmap.bmp");	
+	image = image.rowRange(1,475);	//CROP the image to avoid depth map noise
+	//angle = imread("anglefinal2.bmp");	
+	//angle.convertTo(angle,CV_8U);	
+	//cvtColor(angle, angle, CV_BGR2GRAY);
+	trilocmap = imread("trilocalized.bmp");	
+	trilocmap.convertTo(trilocmap,CV_8U);	
+	cvtColor(trilocmap, trilocmap, CV_BGR2GRAY);
+
+	Mat logsobel;
+	
+	Sobel(image,logsobel,CV_8U,0,1,3,80,128); //vertical sobel filter
+	medianBlur(logsobel,logsobel,5);
+
+	logsobel.convertTo(logsobel, CV_64F, 1);	//convert image; done for logarithm filter
+	log(logsobel, logsobel);
+
+	dilate(logsobel,logsobel,Mat(),Point(-1,-1), 3); //dilate and erode to remove noise
+	erode(logsobel,logsobel,Mat(),Point(-1,-1), 10);
+		
+	logsobel.convertTo(logsobel,CV_8U, 255, 255); //convert the image to 8-bit grayscale for findContours() function
+	cvtColor(logsobel, logsobel, CV_RGB2GRAY);
+
+
+	findContours(logsobel, contours, // a vector of contours
+		CV_RETR_LIST,	// retrieve all contours
+		  CV_CHAIN_APPROX_NONE ); // contour approximation: none
+
+	// Eliminate too short contours as these would not be the floor
+	unsigned int cmin= 1200; // minimum contour length;
+	std::vector<std::vector<cv::Point> > :: iterator i= contours.begin();
+	while (i!=contours.end()) {
+		if (i->size() < cmin)
+		i= contours.erase(i);
+		else
+		++i;
+	}
+	
+
+	// Draw black contours on a white image
+	Mat result(image.size(),CV_8U,cv::Scalar(255));
+	drawContours(result,contours,
+		-1, // draw all contours
+		cv::Scalar(1), // in black
+		-1); // fill it in
+	//namedWindow("contours");
+	//imshow("contours",  result);
+	int nearpixval=0;
+	if (contours.size()==0)
+	{
+		nearpixval=getnearest();
+		marknear(nearpixval);
+		return -1;
+	}
+
+
+	int pixval;
+	int xcomponent = 0;
+	for(int xcomp=65; xcomp < 600; xcomp++){
+		for(int ycomp=1; ycomp < result.size().height; ycomp++){
+			if (result.at<uchar>(ycomp,xcomp) < 255){
+			pixval= pix2m(image.at<uchar>(ycomp, xcomp));
+			xcomponent = float(xcomp - (640/2))* (pixval+(-10)) * 0.0021 * (640/480);
+			xcomponent = (xcomponent)+320;	
+			pixval = pixval;
+			editlocmap(pixval, xcomponent);
+			}
+		}
+	}
+
+int locval= 0;
+
+	for( int xloc=1; xloc < locmap.size().width; xloc++){
+		for(int yloc=1; yloc < locmap.size().height; yloc++){
+			if(locmap.at<uchar>(yloc,xloc)==0){
+			locval=1;
+			}
+			if(locval==1){
+			locmap.at<uchar>(yloc,xloc)=0;
+			}
+		}
+		locval=0;
+	}
+
+	//locmap = locmap.colRange(65,600);
+	locmap = locmap.rowRange(50,450);
+
+	for( int xloc=1; xloc < locmap.size().width; xloc++){
+		for(int yloc=1; yloc < locmap.size().height; yloc++){
+			if(locmap.at<uchar>(yloc,xloc) == 0){
+			edittrlocmap(yloc + 500, xloc + 180);
+			}
+		}
+	}
+
+
+
+
+	flip(locmap, locmap, 0);
+	//flip(angle, angle, 0);
+	//angle = angle.rowRange(110,450);
+	//locmap = locmap - angle;
+	flip(trilocmap, trilocmap, 0);
+	namedWindow("filled local map");
+	imshow("filled local map", locmap);
+	imshow("1000x1000 local map", trilocmap);
+	imwrite("trilocmapfill.bmp", trilocmap);
+	namedWindow("rgb image");
+	imshow("rgb image", image);
+
+	
+	waitKey(0);
+	return 0;
+}

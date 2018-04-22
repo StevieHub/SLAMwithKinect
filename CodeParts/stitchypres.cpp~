@@ -1,0 +1,198 @@
+#include "opencv2/core/core_c.h"
+#include "opencv2/highgui/highgui.hpp"
+#include "opencv2/imgproc/imgproc.hpp"
+#include <iostream>
+#include <fstream>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <unistd.h>
+#include <iostream>
+#include <math.h>
+
+#define PI 3.14159265
+
+using namespace cv;
+using namespace std;
+
+
+Mat image;
+Mat rotim;
+Mat image1(1000,1000,CV_8U,cv::Scalar(255));	//initialize an all-white 1000x1000 image
+Mat areamap;
+Mat rotmat;
+std::vector<std::vector<cv::Point> > contours;
+
+Mat rotate(int angle, Mat image){
+	int centreX= image.size().width/2;
+	int centreY= image.size().height/2;
+	int angle1= angle;
+	Point2f centre(centreX, centreY);
+	rotmat= getRotationMatrix2D(centre, angle1, 1.0);
+	warpAffine(image, image1,rotmat,image1.size());
+	
+	return image1;
+
+}
+
+float mtopixdy(int distance, int angle){
+	float pixdy = (distance*(abs(sin(angle)))/5); //5 cm per pixel
+	cout << sin(angle) << endl;
+	return pixdy;
+}
+
+float mtopixdx(int distance, int angle){
+	float pixdx = (distance*(abs(cos(angle)))/5); //5 cm per pixel
+	cout << sin(angle) << endl;
+	return pixdx;
+}
+
+int getquad(int angle){
+	int quadval;
+	if(angle == 0){
+	quadval = 0;
+	}
+	if(angle > 0 && angle < 90){
+	quadval = 1;
+	}
+	if(angle == 90){
+	quadval = 90;
+	}
+	if(angle > 90 && angle < 180){
+	quadval = 2;
+	}
+	if(angle == 180){
+	quadval = 180;
+	}
+	if(angle > 180 && angle < 270){
+	quadval = 3;
+	}
+	if(angle == 270){
+	quadval = 270;
+	}
+	if(angle > 270){
+	quadval = 4;
+	}
+	return quadval;
+}
+
+void editarmap(int y, int x){
+	areamap.at<uchar>(y, x) = 255;
+}
+
+void editarmaploc(int y, int x){
+	areamap.at<uchar>(y, x) = 150;
+}
+
+int main(){
+	int angle = 60;
+	int distance = 100; // distance in cm
+	image = imread("trilocmapfill.bmp");
+	areamap = imread("starmap.bmp");
+	areamap.convertTo(areamap,CV_8U);	
+	cvtColor(areamap, areamap, CV_BGR2GRAY);
+
+	for( int arx=1; arx < areamap.size().width; arx++){
+		for( int ary=1; ary < areamap.size().height; ary++){
+			if( areamap.at<uchar>(ary,arx) == 150){
+				areamap.at<uchar>(ary,arx)=0;
+			}
+		}
+	}
+
+	rotim = rotate( angle, image );
+cout << angle << endl;
+	int quadrant = getquad(angle);
+cout << quadrant << endl;	
+	int pixdx = mtopixdx(distance, angle);
+cout << pixdx << endl;
+	int pixdy = mtopixdy(distance, angle);
+cout << pixdy << endl;
+
+	resize(rotim, rotim, Size(), 0.2,0.2,INTER_NEAREST );
+	rotim.convertTo(rotim,CV_8U);	
+	cvtColor(rotim, rotim, CV_BGR2GRAY);
+	
+	for( int xloc=1; xloc < rotim.size().width; xloc++){
+		for(int yloc=1; yloc < rotim.size().height; yloc++){
+			if(rotim.at<uchar>(yloc,xloc) > 0){
+				int xnew = xloc + 400;
+				int ynew = yloc + 400;
+				if(quadrant == 90){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew, xnew + pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew, xnew + pixdx);
+					}
+				}
+				if(quadrant == 180){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew + pixdy, xnew);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew + pixdy, xnew);
+					}
+				}
+				if(quadrant == 270){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew, xnew - pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew, xnew - pixdx);
+					}
+				}
+				if(quadrant == 0){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew - pixdy, xnew);
+					}
+					if(rotim.at<uchar>(yloc,xloc) ==150){
+						editarmap(ynew - pixdy, xnew);
+					}
+				}
+				if(quadrant == 2){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew + pixdy, xnew - pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+					editarmap(ynew + pixdy, xnew - pixdx);
+					}
+				}
+				if(quadrant == 3){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew + pixdy, xnew + pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew + pixdy, xnew + pixdx);
+					}
+				}
+				if(quadrant == 4){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew + pixdy, xnew + pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew + pixdy, xnew + pixdx);
+					}
+				}
+				if(quadrant == 1){
+					if(rotim.at<uchar>(yloc,xloc) == 255){
+						editarmaploc(ynew - pixdy, xnew - pixdx);
+					}
+					if(rotim.at<uchar>(yloc,xloc) == 150){
+						editarmap(ynew - pixdy, xnew - pixdx);
+					}
+				}
+
+
+			}
+		}
+	}
+
+	namedWindow("stitched area map");
+	imshow("stitched area map", areamap);
+	imwrite("starmap.bmp", areamap);
+	
+	
+	waitKey(0);
+	return 0;
+}
